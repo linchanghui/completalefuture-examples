@@ -1,20 +1,24 @@
 package com.example.completablefuture;
 
+import org.json.JSONObject;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public class CompletableFutureExamples {
@@ -32,6 +36,7 @@ public class CompletableFutureExamples {
 
     public static void main(String[] args) {
         try {
+            queryExampleWithRunAsync();
 //            allOfAsyncExample();
         } finally {
             executor.shutdown();
@@ -45,19 +50,19 @@ public class CompletableFutureExamples {
     }
 
     static void completeExceptionallyExample() {
-        CompletableFuture<String> cf = CompletableFuture.completedFuture("message").thenApplyAsync(String::toUpperCase,
-                CompletableFuture.delayedExecutor(1, TimeUnit.SECONDS));
-        CompletableFuture<String> exceptionHandler = cf.handle((s, th) -> { return (th != null) ? "message upon cancel" : ""; });
-        cf.completeExceptionally(new RuntimeException("completed exceptionally"));
-        assertTrue("Was not completed exceptionally", cf.isCompletedExceptionally());
-        try {
-            cf.join();
-            fail("Should have thrown an exception");
-        } catch (CompletionException ex) { // just for testing
-            assertEquals("completed exceptionally", ex.getCause().getMessage());
-        }
-
-        assertEquals("message upon cancel", exceptionHandler.join());
+//        CompletableFuture<String> cf = CompletableFuture.completedFuture("message").thenApplyAsync(String::toUpperCase,
+//                CompletableFuture.delayedExecutor(1, TimeUnit.SECONDS));
+//        CompletableFuture<String> exceptionHandler = cf.handle((s, th) -> { return (th != null) ? "message upon cancel" : ""; });
+//        cf.completeExceptionally(new RuntimeException("completed exceptionally"));
+//        assertTrue("Was not completed exceptionally", cf.isCompletedExceptionally());
+//        try {
+//            cf.join();
+//            fail("Should have thrown an exception");
+//        } catch (CompletionException ex) { // just for testing
+//            assertEquals("completed exceptionally", ex.getCause().getMessage());
+//        }
+//
+//        assertEquals("message upon cancel", exceptionHandler.join());
     }
 
     static void runAsyncExample() {
@@ -77,6 +82,72 @@ public class CompletableFutureExamples {
         });
         assertEquals("MESSAGE", cf.getNow(null));
     }
+
+    static void queryExampleWithSupplyAsync() {
+        final String s1 = "s1";
+        final String s2 = "s2";
+        final String s3 = "s3";
+        CompletableFuture<JSONObject> cf = CompletableFuture.supplyAsync(() -> {
+            String s5 = "s5";
+            System.out.println(s1);
+            assertTrue(Thread.currentThread().isDaemon());
+            randomSleep();
+            JSONObject json = new JSONObject();
+            json.put("lch",s5);
+            return json;
+        });
+        assertFalse(cf.isDone());
+        sleepEnough();
+        assertTrue(cf.isDone());
+        JSONObject ret = cf.getNow(null);
+
+    }
+
+    /**
+     * 主要测试：
+     * 1.用runAsync是否真的异步:已确认可以通过执行时间看出
+     * 2.是否可以在异步任务里写最终返回的json对象:已确认可以
+     * 3.是否可以往异常处理函数里传入多个参数:Function类型只能传一个，BiFunction可以传两个，想要传多个见以下写法。
+     */
+    static void queryExampleWithRunAsync() {
+        final String s1 = "s1";
+        final String s2 = "s2";
+        final String s3 = "s3";
+        JSONObject json = new JSONObject();
+        Instant start = Instant.now();
+        CompletableFuture<Void> cf = CompletableFuture.runAsync(() -> {
+            String s5 = "s5";
+            System.out.println(s1);
+            assertTrue(Thread.currentThread().isDaemon());
+            try {
+                Thread.sleep(5000);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            fail("Should have thrown an exception");
+            json.put("lch",s5);
+        }).exceptionally(handleGetUserFailureWithoutReturn.apply(s1).apply(s2).apply(s3));
+
+
+        CompletableFuture<Void> cf1 = CompletableFuture.runAsync(() -> {
+            String s5 = "s5";
+            System.out.println(s5);
+            assertTrue(Thread.currentThread().isDaemon());
+            try {
+                Thread.sleep(5000);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            json.put("lch1",s5);
+        }).exceptionally(handleGetUserFailureWithoutReturn.apply(s1).apply(s2).apply(s3));
+
+        while (!cf.isDone() || !cf1.isDone()) {
+            sleepEnough();
+        }
+        Instant end = Instant.now();
+        System.out.println(Duration.between(start, end));
+    }
+
 
     static void thenApplyAsyncExample() {
         CompletableFuture<String> cf = CompletableFuture.completedFuture("message").thenApplyAsync(s -> {
@@ -116,12 +187,12 @@ public class CompletableFutureExamples {
     }
 
     static void cancelExample() {
-        CompletableFuture<String> cf = CompletableFuture.completedFuture("message").thenApplyAsync(String::toUpperCase,
-                CompletableFuture.delayedExecutor(1, TimeUnit.SECONDS));
-        CompletableFuture<String> cf2 = cf.exceptionally(throwable -> "canceled message");
-        assertTrue("Was not canceled", cf.cancel(true));
-        assertTrue("Was not completed exceptionally", cf.isCompletedExceptionally());
-        assertEquals("canceled message", cf2.join());
+//        CompletableFuture<String> cf = CompletableFuture.completedFuture("message").thenApplyAsync(String::toUpperCase,
+//                CompletableFuture.delayedExecutor(1, TimeUnit.SECONDS));
+//        CompletableFuture<String> cf2 = cf.exceptionally(throwable -> "canceled message");
+//        assertTrue("Was not canceled", cf.cancel(true));
+//        assertTrue("Was not completed exceptionally", cf.isCompletedExceptionally());
+//        assertEquals("canceled message", cf2.join());
     }
 
     static void applyToEitherExample() {
@@ -266,4 +337,18 @@ public class CompletableFutureExamples {
         }
     }
 
+    private static Function<String, Function<String , Function<String, Function<Throwable, Void>>>> handleGetUserFailureWithoutReturn = userId -> startTime -> endTime -> throwable -> {
+        JSONObject ret = new JSONObject();
+        System.out.println(userId);
+        System.out.println(startTime);
+        System.out.println(endTime);
+
+        ret.put("error:", throwable.toString());
+        return null;
+    };
+    private static Function<String, Function<Throwable, JSONObject>> handleGetUserFailureWithReturn = userId -> throwable -> {
+        JSONObject ret = new JSONObject();
+        ret.put("error:", throwable.toString());
+        return ret;
+    };
 }
